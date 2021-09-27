@@ -8,8 +8,7 @@
 import os
 import sys
 from getopt import getopt
-#from . import FixPath
-import FixPath
+from . import FixPath
 import MiddleKit
 
 if sys.platform == 'win32':
