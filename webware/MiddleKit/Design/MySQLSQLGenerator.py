@@ -30,6 +30,15 @@ class Klasses(object):
     def listTablesSQL(self):
         return 'show tables;\n\n'
 
+    def sqlTableName(self):
+        return '`%s`' % self.name()
+
+
+class Attr:
+
+    def sqlName(self):
+        return "`%s`" % self.name()
+
 
 class Klass(object):
 

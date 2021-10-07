@@ -1,6 +1,5 @@
 import sys
 import threading
-#from types import InstanceType
 
 from webware.MiscUtils import NoDefault
 from webware.MiscUtils.NamedValueAccess import valueForName
@@ -279,7 +278,6 @@ class MiddleObject(object):
             if isinstance(attr, ObjRefAttr):
                 value = getattr(self, '_' + attr.name())
                 if value is not None:
-                    #if isinstance(value, (MiddleObject, InstanceType)):
                     if isinstance(value, MiddleObject):
                         value.removeObjectFromListAttrs(self)
                     elif isinstance(value, int):

@@ -10,6 +10,9 @@ from MySQLdb import Warning
 
 from .SQLObjectStore import SQLObjectStore
 
+# this is used so that we can access escape_string
+globalconn = None
+
 
 class MySQLObjectStore(SQLObjectStore):
     """MySQLObjectStore implements an object store backed by a MySQL database.
@@ -50,6 +53,9 @@ class MySQLObjectStore(SQLObjectStore):
         kwargs = self._dbArgs.copy()
         self.augmentDatabaseArgs(kwargs)
         conn = self.dbapiModule().connect(**kwargs)
+        global globalconn
+        globalconn = conn
+        globalconn
         if self._autocommit:
             # MySQLdb 1.2.0 and later disables autocommit by default
             try:
@@ -107,11 +113,30 @@ class MySQLObjectStore(SQLObjectStore):
     def sqlNowCall(self):
         return 'NOW()'
 
+    def sqlCaseInsensitiveLike(self, a, b):
+        # mysql is case-insensitive by default
+        return "%s like %s" % (a,b)
+
 
 # Mixins
+
+class Klass(object):
+
+    def sqlTableName(self):
+        return "`%s`" % self.name()
+
+
+class Attr(object):
+
+    def sqlColumnName(self):
+        """ Returns the SQL column name corresponding to this attribute, consisting of self.name() + self.sqlTypeSuffix(). """
+        if not self._sqlColumnName:
+            self._sqlColumnName = "`%s`" % self.name()
+        return self._sqlColumnName
+
 
 class StringAttr(object):
 
     def sqlForNonNone(self, value):
         """MySQL provides a quoting function for string -- this method uses it."""
-        return "'" + MySQLdb.escape_string(value) + "'"
+        return "'" + globalconn.escape_string(value) + "'"

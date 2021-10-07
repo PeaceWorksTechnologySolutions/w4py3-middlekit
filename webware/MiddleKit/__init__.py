@@ -4,9 +4,6 @@
 
 __all__ = ['Core', 'Design', 'Run']
 
-
-#def InstallInWebKit(appServer):
-#    pass
 def installInWebware(application):
     pass
 

@@ -3,6 +3,7 @@ import sys
 from .MiddleObject import MiddleObject
 from .ObjectStore import ObjectStore, UnknownObjectError
 from .ObjectKey import ObjectKey
+from .Query import Query
 from MiddleKit.Core.ObjRefAttr import objRefJoin, objRefSplit
 from webware.MiscUtils import NoDefault, AbstractError, CSVJoiner
 from webware.MiscUtils import Funcs as funcs
@@ -414,6 +415,57 @@ class SQLObjectStore(ObjectStore):
             finally:
                 self.doneWithConnection(conn)
         objs.extend(deepObjs)
+        return objs
+
+    def fetchObjects(self, aClass, qualifier='', fetchReferenced=0):
+        contextKlass = self._klassForClass(aClass)
+        q = Query(self)
+        return q.fetchObjects(contextKlass, qualifier, fetchReferenced)
+
+    def fetchObjectsFromQuery(self, sql, klasses, clauses='', refreshAttrs=1):
+        """
+        Instantiates objects from the results of a query.  The query can be a 
+        join, so that each row in the result set contains all the attributes 
+        for    more than one object.  Use of this method thus allows efficient
+        retrieval of objects along with related objects.
+
+        sql is the SQL query as a string.
+        klasses is a list of MiddleKit class instances.  This list must 
+        correspond to the sequence of objects in each row of the query result.
+        clauses is the same as above in fetchObjectsOfClass.
+        """
+        objs = [[] for i in range(0, len(klasses))]
+        if self._markDeletes:
+            clauses = self.addDeletedToClauses(clauses)
+        conn, cur = self.executeSQL(sql + clauses + ";")
+        for row in cur.fetchall():
+            startindex = 0
+            klassindex=0
+            for klass in klasses:
+                endindex = startindex + len(klass.allColumns())
+                serialNum = row[startindex]
+                    
+                # in the case of a left join, the serial num and attributes
+                # for a class may be all null.  In this case skip to the next 
+                # class
+                if not serialNum:
+                    continue
+                key = ObjectKey().initFromClassNameAndSerialNum(klass.name(), serialNum)
+                obj = self._objects.get(key, None)
+                if obj is None:
+                    pyClass = klass.pyClass()
+                    obj = pyClass()
+                    assert isinstance(obj, MiddleObject), 'Not a MiddleObject. obj = %r, type = %r, MiddleObject = %r' % (obj, type(obj), MiddleObject)
+                    obj.readStoreData(self, row[startindex:endindex])
+                    obj.setKey(key)
+                    self._objects[key] = obj
+                else:
+                    # Existing object
+                    if refreshAttrs:
+                        obj.readStoreData(self, row[startindex:endindex])
+                startindex = endindex
+                objs[klassindex].append(obj)
+                klassindex += 1
         return objs
 
     def refreshObject(self, obj):
@@ -869,6 +921,8 @@ class Klass(object):
 
     _fetchSQLStart = None  # help out the caching mechanism in fetchSQLStart()
     _insertSQLStart = None  # help out the caching mechanism in insertSQLStart()
+    _allColumns = None  # help out the caching mechanism in allColumns()
+
 
     def sqlTableName(self):
         """Return the name of the SQL table for this class.
@@ -902,6 +956,18 @@ class Klass(object):
             self._insertSQLStart = ''.join(res)
             self._sqlAttrs = attrs
         return self._insertSQLStart, self._sqlAttrs
+
+    def allColumns(self):
+        """ 
+        Return a list of this klass' data attributes plus the sql id column.
+        """
+        if self._allColumns is None:
+            attrs = filter( lambda attr: attr.hasSQLColumn(), self.allDataAttrs())
+            colNames = [self.sqlSerialColumnName()]
+            for attr in attrs:
+                colNames.extend(attr.sqlColumnName().split(","))
+            self._allColumns = colNames
+        return self._allColumns
 
 
 class Attr(object):
