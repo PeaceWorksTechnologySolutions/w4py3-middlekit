@@ -52,6 +52,7 @@ class Scanner(GenericScanner):
                  'not': 1,
                  'like': 1,
                  'ilike': 1,
+                 'rlike': 1,
                  'regexp': 1,
                  'null': 1,
                  'none': 1,
@@ -59,7 +60,11 @@ class Scanner(GenericScanner):
                  'with': 1,
                  'in': 1,
                  'exists': 1,
+                 'join': 1,
+                 'on': 1,
                  'where': 1,
+                 'match': 1,
+                 'against': 1,
                 }
 
     def tokenize(self, input):
@@ -249,6 +254,12 @@ class Parser(GenericParser):
         ' condition ::= expr '
         return args[0]
 
+    def p_cond_5(self, args):
+        ' condition ::= join lParen identifier on qual rParen'
+        return Node(type=args[0],
+                    right=args[4],
+                    extra=args[2])
+
     def p_compop(self, args):
         ''' 
         comparisonop ::= ==
@@ -260,6 +271,7 @@ class Parser(GenericParser):
         comparisonop ::= <=
         comparisonop ::= like
         comparisonop ::= ilike
+        comparisonop ::= rlike 
         comparisonop ::= regexp
         comparisonop ::= is
         comparisonop ::= in
@@ -323,6 +335,8 @@ class Parser(GenericParser):
     def p_term_2(self, args):
         ''' term         ::= number
             term         ::= qualifiedAttr 
+            term         ::= function 
+            term         ::= matchagainst
         '''
         return args[0]
 
@@ -333,7 +347,7 @@ class Parser(GenericParser):
     def p_term_4(self, args):
         ' term       ::= quotedString '
         return Node(type=args[0])
-    
+
     def p_number_1(self, args):
         ' number       ::= integer '
         return Node(type=args[0])
@@ -343,6 +357,34 @@ class Parser(GenericParser):
         return Node(type=Token('decimal'),
                     left=args[0],
                     right=args[2])
+
+    def p_function_1(self, args):
+        ' function       ::= identifier lParen exprList rParen'
+        t = Token(type='functionCall', attr=args[0].attr)
+        return Node(type=t, left=args[2])
+
+    def p_function_2(self, args):
+        ' function       ::= identifier lParen rParen'
+        t = Token(type='functionCall', attr=args[0].attr)
+        return Node(type=t)
+
+    def p_matchagainst_1(self, args):
+        ' function       ::= match lParen exprList rParen againstclause'
+        t = Token(type='match', attr=args[0].attr)
+        return Node(type=t,
+                    left=args[2],
+                    right=args[4])
+
+    def p_against_1(self, args):
+        ' againstclause     ::= against lParen expr searchcondition rParen '
+        return Node(type=Token('against'),
+                    left=args[2],
+                    right=args[3])
+
+    def p_searchcondition(self, args):
+        ' searchcondition       ::= in identifier identifier'
+        ' searchcondition       ::= with identifier identifier'
+        return Node(type=Token('searchCondition', attr="%s %s %s" % (args[0].type, args[1].attr, args[2].attr)))
 
     def p_qualAttr_1(self, args):
         ' qualifiedAttr ::= identifier dot qualifiedAttr '
@@ -377,7 +419,7 @@ class KlassContext:
             identifier = ''
         return 'KlassContext: klass=%s, alias=%s%s' % (self.klass.name(), self.alias, identifier)
 
-        
+
 class Join:
     def __init__(self, fromContext, attr, toContext):
         self.fromContext = fromContext
@@ -386,6 +428,16 @@ class Join:
 
     def sql(self):
         return " left join %s %s on %s.%s & 4294967295 = %s.%s " % (self.toContext.klass.sqlTableName(), self.toContext.alias, self.fromContext.alias, self.attr + "Id", self.toContext.alias, self.toContext.klass.sqlSerialColumnName())
+
+
+class ExplicitJoin:
+    def __init__(self, newContext, on_node):
+        self.newContext = newContext
+        self.on_node = on_node
+
+    def sql(self):
+        return " join %s %s on %s" % (self.newContext.klass.sqlTableName(), self.newContext.alias, self.on_node.output)
+
 
 class AttrCheck(GenericASTTraversal):
     def __init__(self, ast, store, rootContexts, rootJoins):
@@ -484,6 +536,20 @@ class AttrCheck(GenericASTTraversal):
         #dump_contexts(self.contexts)
         self.prune()
 
+    def n_join(self, node):
+        # FIXME: look up Klass (left node), ensure it exists
+        klass = self.store.model().klass(node.extra.attr)
+        # set KlassContext for right side
+        node.inheritedContext = node.right.inheritedContext = KlassContext(klass, self.nextAlias(), parent=node.inheritedContext)
+        #print 'Current contexts:'
+        #dump_contexts(self.contexts)
+        self.preorder(node.right)
+        #import pdb
+        #pdb.set_trace()
+        node.join = ExplicitJoin(node.inheritedContext, node.right)
+        self.joins.append(node.join)  #node.inheritedContext, node.attr, node.resolvedContext))
+        self.prune()
+
     def default(self, node):
         # if it exists, propagate the context klass to the children
         if node.left:
@@ -524,14 +590,21 @@ class RunQueries(GenericASTTraversal):
     def n_operator(self, node):
         if node.attr == 'ilike':
             node.output = self.store.sqlCaseInsensitiveLike(node.left.output, node.right.output)
-        elif node.attr == '==':
+        elif node.attr in ['==', '!=']:
+            # handle "is null" and "is not null"
+            if node.attr == '==':
+                null_op = 'is'
+                op = '='
+            else:
+                null_op = 'is not'
+                op = '!='
             if node.left and node.left.type == 'null':
-                node.output = "%s is null" % node.right.output
+                node.output = "%s %s null" % (node.right.output, null_op)
             elif node.right and node.right.type == 'null':
-                node.output = "%s is null" % node.left.output
+                node.output = "%s %s null" % (node.left.output, null_op)
             else:
                 #print node.dump()
-                node.output = "%s = %s" % (node.left.output, node.right.output)
+                node.output = "%s %s %s" % (node.left.output, op, node.right.output)
         elif node.attr == 'regexp':
             node.output = self.store.sqlCaseInsensitiveRegexp(node.left.output, node.right.output)
         else:
@@ -546,6 +619,21 @@ class RunQueries(GenericASTTraversal):
         # FIXME: we don't handle the case where the Class in the subquery has subclasses.  This
         # could be implemented by emitting (exists (select * from A ...) or exists (select * from B ...) or ...)
         node.output = 'exists ( select * from %s %s %s where %s )' % (node.inheritedContext.klass.sqlTableName(), node.inheritedContext.alias, joins, where)
+
+    def n_join(self, node):
+        node.output = ''
+
+    def n_functionCall(self, node):
+        if node.left:
+            node.output = "%s( %s ) " % (node.attr, node.left.output)
+        else:
+            node.output = "%s() " % (node.attr)
+
+    def n_match(self, node):
+        node.output = "match ( %s ) against ( %s )" % (node.left.output, node.right.output)
+
+    def n_searchCondition(self, node):
+        node.output = node.attr
 
     def default(self, node):
         node.output = []
@@ -591,7 +679,12 @@ class Query:
             select = "select %s from %s %s" % (cols, base.klass.sqlTableName(), base.alias)
             sql = select + buildJoins(joins)
             if tree.output:
-                clauses = " where %s " % tree.output
+                # hack to eliminate "and".  This can occur in a query like:
+                # join (InSubject on resource == Resource.resourceId) and status == 'private'
+                output = tree.output
+                if output.strip().startswith('and'):
+                    output = output.strip()[3:]
+                clauses = " where %s " % output
             else:
                 clauses = ""
             #print sql, clauses
@@ -608,6 +701,7 @@ class Query:
             return objs
 
     def fetchObjects(self, klass, qualifier, fetchReferenced=0):
+        #print qualifier
         scanner = Scanner()
         parser = Parser()
         try:
