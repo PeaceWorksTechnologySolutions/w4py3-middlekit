@@ -86,7 +86,7 @@ class MySQLObjectStore(SQLObjectStore):
                 pool._normalConnection = connection
                 pool._autocommit = self._autocommit
                 pool.connection = instancemethod(
-                    newConnection, pool, pool.__class__)
+                    newConnection, pool)
 
     def retrieveLastInsertId(self, conn, cur):
         try:
