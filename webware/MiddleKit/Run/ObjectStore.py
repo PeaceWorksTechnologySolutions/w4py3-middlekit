@@ -487,18 +487,25 @@ class ObjectStore(ModelUser):
     def objectStats(self, showAll=0):
         print('Objects in cache: %d' % len(self._objects))
         if showAll:
-            objects = self._objects
-            if objects and not objects == self.emptyObjectCache():
-                values = list(objects.values())
-                for obj in values:
-                    print(obj.textRef())
+            values = self.getObjValues()
+            for obj in values:
+                print(obj.textRef())
 
     def breakObjectReferences(self):
-        objects = self._objects
-        if objects and not objects == self.emptyObjectCache():
-            values = list(objects.values())
-            for obj in values:
-                obj.breakObjectReferences()
+        objects = self.getObjValues()
+        for obj in objects:
+            obj.breakObjectReferences()
+
+    def getObjValues(self):
+        attempts = 0
+        while attempts < 3:
+            try:
+                values = list(self._objects.copy().values())  # Attempt to snapshot values
+                return values
+            except RuntimeError:
+                attempts += 1  # Increment the counter and try again
+                if attempts == 3:
+                    raise  # Re-raise the last exception if out of attempts
 
 
     ## Notifications ##
