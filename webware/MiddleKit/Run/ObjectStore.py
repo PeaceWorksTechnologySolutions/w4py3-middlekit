@@ -484,6 +484,22 @@ class ObjectStore(ModelUser):
         self._changedObjects.clear()
         self._newSerialNum = -1
 
+    def objectStats(self, showAll=0):
+        print('Objects in cache: %d' % len(self._objects))
+        if showAll:
+            objects = self._objects
+            if objects and not objects == self.emptyObjectCache():
+                values = list(objects.values())
+                for obj in values:
+                    print(obj.textRef())
+
+    def breakObjectReferences(self):
+        objects = self._objects
+        if objects and not objects == self.emptyObjectCache():
+            values = list(objects.values())
+            for obj in values:
+                obj.breakObjectReferences()
+
 
     ## Notifications ##
 

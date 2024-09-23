@@ -350,6 +350,10 @@ class MiddleObject(object):
                 out.write('%s = %s\n' % (name, getattr(self, key)))
         out.write('\n')
 
+    def textRef(self):
+        return "%s.%d" % (self.klass().name(), self.serialNum())
+
+    objectRef = textRef
 
     ## Misc access ##
 
@@ -599,3 +603,23 @@ class MiddleObject(object):
                 copyAttrValue(self, copy, attr, memo, depthAttr)
 
         return copy
+
+    def breakObjectReferences(self):
+        """
+        Break references between MiddleKit objects.  
+
+        This is sometimes helpful in debugging memory usage, as it allows 
+        more MiddleKit objects to be garbage-collected. 
+
+        We break references by setting ObjRefAttr values to corresponding integer 
+        values, and ListAttr values to None.  Objects will be re-fetched
+        from the database as necessary, so this is is not harmful.
+        """
+        for attr in self.klass().allAttrs():
+            if isinstance(attr, ObjRefAttr):
+                value = getattr(self, '_' + attr.name())
+                if value is not None and isinstance(value, MiddleObject):
+                    setattr(self, '_' + attr.name(), value.sqlObjRef())
+                elif isinstance(attr, ListAttr):
+                    setattr(self, '_' + attr.name(), None)
+

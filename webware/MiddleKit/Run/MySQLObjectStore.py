@@ -117,6 +117,9 @@ class MySQLObjectStore(SQLObjectStore):
         # mysql is case-insensitive by default
         return "%s like %s" % (a,b)
 
+    def sqlCaseInsensitiveRegexp(self, a, b):
+        return "%s regexp %s" % (a,b)
+
 
 # Mixins
 
