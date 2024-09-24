@@ -1,5 +1,6 @@
 import sys
 import _thread
+import threading
 #from types import ClassType
 
 from weakref import WeakValueDictionary
@@ -98,6 +99,10 @@ class ObjectStore(ModelUser):
         self._model = None
         self._newSerialNum = -1
         self._verboseDelete = False
+        self.object_thread_count = []
+        self.need_object_lock = False
+        self.thread_exited = threading.Event()
+        self.object_lock = threading.Lock()
 
     def modelWasSet(self):
         """Perform additional set up of the store after the model is set."""
@@ -503,15 +508,17 @@ class ObjectStore(ModelUser):
             obj.breakObjectReferences()
 
     def getObjValues(self):
-        self.object_lock.acquire()
-        try:
-            # tell other threads that they need to acquire a lock when updating _objects
-            self.need_object_lock = True
-
-            # wait until no more threads are in the critical section
+        self.need_object_lock = True
+        # wait until no more threads are in the critical section
+        while True:
             while len(self.object_thread_count) > 0:
                 self.thread_exited.wait()  # wait until the counter changes
-            return list(self._objects.copy().values())  # copy and return values
+            if self.object_lock.acquire(blocking=False):
+                break
+        try:
+            # tell other threads that they need to acquire a lock when updating _objects
+
+            return list(self._objects.values())  # copy and return values
         finally:
             # clear flag, release the lock
             self.need_object_lock = False
