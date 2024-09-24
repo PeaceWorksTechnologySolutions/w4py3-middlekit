@@ -214,6 +214,12 @@ class ObjectStore(ModelUser):
         Restrictions: The object must be contained in the store and obviously
         you cannot remove it more than once.
         """
+
+        # the update to self._objects is factored out and wrapped
+        # using self.updateObjectDict for thread safety
+        def delete_object(o):
+            del self._objects[o.key()]
+
         # First check if the delete is possible.  Then do the actual delete.
         # This avoids partially deleting objects only to have an exception
         # halt the process in the middle.
@@ -234,7 +240,7 @@ class ObjectStore(ModelUser):
             obj._mk_isDeleted = True
             self._deletedObjects.append(obj)
             obj.updateReferencingListAttrs()
-            del self._objects[obj.key()]
+            self.updateObjectDict(delete_object, obj)
 
     def _deleteObject(self, obj, objectsToDel, detaches, superobject=None):
         """Compile the list of objects to be deleted.
@@ -497,15 +503,32 @@ class ObjectStore(ModelUser):
             obj.breakObjectReferences()
 
     def getObjValues(self):
-        attempts = 0
-        while attempts < 3:
-            try:
-                values = list(self._objects.copy().values())  # Attempt to snapshot values
-                return values
-            except RuntimeError:
-                attempts += 1  # Increment the counter and try again
-                if attempts == 3:
-                    raise  # Re-raise the last exception if out of attempts
+        self.object_lock.acquire()
+        try:
+            # tell other threads that they need to acquire a lock when updating _objects
+            self.need_object_lock = True
+
+            # wait until no more threads are in the critical section
+            while len(self.object_thread_count) > 0:
+                self.thread_exited.wait()  # wait until the counter changes
+            return list(self._objects.copy().values())  # copy and return values
+        finally:
+            # clear flag, release the lock
+            self.need_object_lock = False
+            self.object_lock.release()
+
+    def updateObjectDict(self, func, *args, **kwargs):
+        self.object_thread_count.append(1)  # increase counter
+        if self.need_object_lock:
+            self.object_lock.acquire()
+            func(*args, **kwargs)
+            self.object_lock.release()
+        else:
+            func(*args, **kwargs)
+
+        self.object_thread_count.pop()  # decrement counter
+        self.thread_exited.set()  # signal that the counter has changed
+        self.thread_exited.clear()
 
 
     ## Notifications ##

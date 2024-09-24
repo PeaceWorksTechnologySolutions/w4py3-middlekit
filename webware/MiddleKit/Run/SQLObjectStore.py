@@ -255,6 +255,11 @@ class SQLObjectStore(ObjectStore):
             self.doneWithConnection(conn)
         self._newObjects.clear(allThreads)
 
+    def addToObjectDict(self, key, obj):
+        def addObject(k, o):
+            self._objects[k] = o
+        self.updateObjectDict(addObject, key, obj)
+
     def _insertObject(self, obj, unknownSerialNums):
         # New objects not in the persistent store have serial numbers less than 1
         if obj.serialNum() > 0:
@@ -281,7 +286,7 @@ class SQLObjectStore(ObjectStore):
             obj.setChanged(False)
 
             # Update our object pool
-            self._objects[obj.key()] = obj
+            self.addToObjectDict(obj.key(), obj)
         finally:
             self.doneWithConnection(conn)
 
@@ -406,7 +411,7 @@ class SQLObjectStore(ObjectStore):
                                 % (obj, type(obj), MiddleObject))
                         obj.readStoreData(self, row)
                         obj.setKey(key)
-                        self._objects[key] = obj
+                        self.addToObjectDict(key, obj)
                     else:
                         # Existing object
                         if refreshAttrs:
@@ -458,7 +463,7 @@ class SQLObjectStore(ObjectStore):
                     assert isinstance(obj, MiddleObject), 'Not a MiddleObject. obj = %r, type = %r, MiddleObject = %r' % (obj, type(obj), MiddleObject)
                     obj.readStoreData(self, row[startindex:endindex])
                     obj.setKey(key)
-                    self._objects[key] = obj
+                    self.addToObjectDict(key, obj)
                 else:
                     # Existing object
                     if refreshAttrs:
