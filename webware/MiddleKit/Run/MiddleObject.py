@@ -620,6 +620,6 @@ class MiddleObject(object):
                 value = getattr(self, '_' + attr.name())
                 if value is not None and isinstance(value, MiddleObject):
                     setattr(self, '_' + attr.name(), value.sqlObjRef())
-                elif isinstance(attr, ListAttr):
-                    setattr(self, '_' + attr.name(), None)
+            elif isinstance(attr, ListAttr):
+                setattr(self, '_' + attr.name(), None)
 
